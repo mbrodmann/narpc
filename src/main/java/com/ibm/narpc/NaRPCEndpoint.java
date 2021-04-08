@@ -80,15 +80,22 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 		pendingRPCs.put(ticket, future);
 
 		while(!writeLock.tryLock());
-		channel.write(buffer);
-		while(buffer.hasRemaining()){
-			pollResponse();
-			channel.write(buffer);
-		}
-		writeLock.unlock();
 
-		putBuffer(buffer);
-		return future;
+		try {
+			channel.write(buffer);
+			while(buffer.hasRemaining()){
+				pollResponse();
+				channel.write(buffer);
+			}
+			writeLock.unlock();
+
+			putBuffer(buffer);
+			return future;
+		} catch(IOException e) {
+			writeLock.unlock();
+			throw e;
+		}
+
 	}
 
 	void pollResponse() throws IOException {
