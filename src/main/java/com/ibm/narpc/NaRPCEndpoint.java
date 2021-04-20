@@ -87,39 +87,50 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 				pollResponse();
 				channel.write(buffer);
 			}
-			writeLock.unlock();
-
-			putBuffer(buffer);
 			return future;
-		} catch(IOException e) {
+			
+		} finally {
 			writeLock.unlock();
 			putBuffer(buffer);
-			throw e;
 		}
 
 	}
 
 	void pollResponse() throws IOException {
 		ByteBuffer buffer = getBuffer();
+		
 		if (buffer == null){
 			return;
 		}
-		if(readLock.tryLock()){
-			long ticket = NaRPCProtocol.fetchBuffer(channel, buffer);
-			readLock.unlock();
-			if (ticket > 0){
-				NaRPCFuture<R, T> future = pendingRPCs.remove(ticket);
-				future.getResponse().update(buffer);
-				future.signal();
+		
+		boolean acquired = false;
+			
+		try {
+			
+			acquired = readLock.tryLock();
+			if(acquired){
+				long ticket = NaRPCProtocol.fetchBuffer(channel, buffer);
+				if (ticket > 0){
+					NaRPCFuture<R, T> future = pendingRPCs.remove(ticket);
+					future.getResponse().update(buffer);
+					future.signal();
+				}
 			}
+		} finally {
+			if(acquired) {
+				readLock.unlock();	
+			}
+			putBuffer(buffer);
 		}
-		putBuffer(buffer);
+
+
+
 	}
-	
+
 	public String address() throws IOException {
 		return channel.getRemoteAddress().toString();
 	}
-	
+
 	private ByteBuffer getBuffer(){
 		ByteBuffer buffer = bufferQueue.poll();
 		return buffer;
