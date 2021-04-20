@@ -93,6 +93,7 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 			return future;
 		} catch(IOException e) {
 			writeLock.unlock();
+			putBuffer(buffer);
 			throw e;
 		}
 
