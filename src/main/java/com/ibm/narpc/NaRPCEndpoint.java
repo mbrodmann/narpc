@@ -69,44 +69,65 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 		this.channel.close();
 	}
 
-	public NaRPCFuture<R,T> issueRequest(R request, T response) throws IOException {
-		ByteBuffer buffer = getBuffer();
-		while(buffer == null){
-			buffer = getBuffer();
-		}
-		long ticket = sequencer.getAndIncrement();
-		NaRPCProtocol.makeMessage(ticket, request, buffer);
-		NaRPCFuture<R,T> future = new NaRPCFuture<R,T>(this, request, response, ticket);
-		pendingRPCs.put(ticket, future);
+	public NaRPCFuture<R,T> issueRequest(R request, T response) throws Exception {
 
-		while(!writeLock.tryLock());
+		Exception e = null;
+		ByteBuffer buffer = null;
+
+		NaRPCFuture<R,T> future = null;
 
 		try {
+
+			buffer = getBuffer();
+			while(buffer == null){
+				buffer = getBuffer();
+			}
+			long ticket = sequencer.getAndIncrement();
+			NaRPCProtocol.makeMessage(ticket, request, buffer);
+			future = new NaRPCFuture<R,T>(this, request, response, ticket);
+			pendingRPCs.put(ticket, future);
+
+			while(!writeLock.tryLock());
+
 			channel.write(buffer);
 			while(buffer.hasRemaining()){
 				pollResponse();
 				channel.write(buffer);
 			}
-			return future;
-			
-		} finally {
-			writeLock.unlock();
-			putBuffer(buffer);
-		}
 
+		} catch(Exception exception) {
+			e = exception;
+		} finally {
+			if(writeLock.isHeldByCurrentThread()) {
+				writeLock.unlock();
+			}
+
+			if(buffer != null) {
+				putBuffer(buffer);
+			}
+
+			if(e != null) {
+				throw e;
+			}
+		}
+		
+		return future;
 	}
 
-	void pollResponse() throws IOException {
-		ByteBuffer buffer = getBuffer();
-		
-		if (buffer == null){
-			return;
-		}
-		
+	void pollResponse() throws Exception {
+
+		Exception e = null;
+		ByteBuffer buffer = null;
 		boolean acquired = false;
-			
+
 		try {
-			
+
+			buffer = getBuffer();
+
+			if (buffer == null){
+				return;
+			}
+
 			acquired = readLock.tryLock();
 			if(acquired){
 				long ticket = NaRPCProtocol.fetchBuffer(channel, buffer);
@@ -116,15 +137,22 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 					future.signal();
 				}
 			}
+
+		} catch(Exception exception) {
+			e = exception;
 		} finally {
 			if(acquired) {
-				readLock.unlock();	
+				readLock.unlock();
 			}
-			putBuffer(buffer);
+
+			if(buffer != null) {
+				putBuffer(buffer);
+			}
+
+			if(e != null) {
+				throw e;	
+			}
 		}
-
-
-
 	}
 
 	public String address() throws IOException {
