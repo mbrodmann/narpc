@@ -25,6 +25,8 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -40,6 +42,8 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 	private SocketChannel channel;
 	private ReentrantLock readLock;
 	private ReentrantLock writeLock;
+	
+	private Selector selector;
 
 	public NaRPCEndpoint(NaRPCGroup group, SocketChannel channel) throws Exception {
 		this.group = group;
@@ -55,6 +59,7 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 		this.sequencer = new AtomicLong(1);
 		this.readLock = new ReentrantLock();
 		this.writeLock = new ReentrantLock();
+		this.selector = Selector.open();
 	}
 
 	public void connect(InetSocketAddress address) throws IOException {
@@ -62,6 +67,7 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 		this.channel.connect(address);
 		while(!channel.finishConnect() ){
 		}
+		channel.register(selector, SelectionKey.OP_READ);
 
 	}
 
@@ -69,7 +75,7 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 		this.channel.close();
 	}
 
-	public NaRPCFuture<R,T> issueRequest(R request, T response) throws Exception {
+	public NaRPCFuture<R,T> issueRequest(R request, T response) throws IOException {
 
 		Exception e = null;
 		ByteBuffer buffer = null;
@@ -107,14 +113,14 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 			}
 
 			if(e != null) {
-				throw e;
+				throw new IOException();
 			}
 		}
 		
 		return future;
 	}
 
-	void pollResponse() throws Exception {
+	void pollResponse() throws IOException {
 
 		Exception e = null;
 		ByteBuffer buffer = null;
@@ -130,7 +136,12 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 
 			acquired = readLock.tryLock();
 			if(acquired){
-				long ticket = NaRPCProtocol.fetchBuffer(channel, buffer);
+				long ticket = NaRPCProtocol.fetchBuffer(selector, channel, buffer);
+
+				if(ticket == -1) {
+					throw new IOException();
+				}
+
 				if (ticket > 0){
 					NaRPCFuture<R, T> future = pendingRPCs.remove(ticket);
 					future.getResponse().update(buffer);
@@ -150,7 +161,7 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 			}
 
 			if(e != null) {
-				throw e;	
+				throw new IOException();	
 			}
 		}
 	}
