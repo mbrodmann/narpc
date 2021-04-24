@@ -56,7 +56,7 @@ public class NaRPCProtocol {
     public static long fetchBuffer(Selector selector, SocketChannel channel, ByteBuffer buffer) throws IOException{
         buffer.clear().limit(HEADERSIZE);
         
-        int ready = selector.select(1000);
+        int ready = selector.select(100);
         Set<SelectionKey> selectedKeys = selector.selectedKeys();
         
         if(selectedKeys.size() == 0) {
