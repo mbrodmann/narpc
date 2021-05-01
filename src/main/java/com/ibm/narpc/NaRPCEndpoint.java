@@ -166,6 +166,52 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 		}
 	}
 
+	void pollResponseBlocking() throws IOException {
+
+		Exception e = null;
+		ByteBuffer buffer = null;
+		boolean acquired = false;
+
+		try {
+
+			buffer = getBuffer();
+
+			if (buffer == null){
+				return;
+			}
+
+			acquired = readLock.tryLock();
+			if(acquired){
+				long ticket = NaRPCProtocol.fetchBufferBlocking(selector, channel, buffer);
+
+				if(ticket == -1) {
+					throw new IOException();
+				}
+
+				if (ticket > 0){
+					NaRPCFuture<R, T> future = pendingRPCs.remove(ticket);
+					future.getResponse().update(buffer);
+					future.signal();
+				}
+			}
+
+		} catch(Exception exception) {
+			e = exception;
+		} finally {
+			if(acquired) {
+				readLock.unlock();
+			}
+
+			if(buffer != null) {
+				putBuffer(buffer);
+			}
+
+			if(e != null) {
+				throw new IOException();	
+			}
+		}
+	}
+
 	public String address() throws IOException {
 		return channel.getRemoteAddress().toString();
 	}

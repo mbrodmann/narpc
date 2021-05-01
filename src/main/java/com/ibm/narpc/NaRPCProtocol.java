@@ -54,6 +54,33 @@ public class NaRPCProtocol {
     }
 
     public static long fetchBuffer(Selector selector, SocketChannel channel, ByteBuffer buffer) throws IOException{
+        buffer.clear().limit(HEADERSIZE);        
+        
+        int ret = channel.read(buffer);
+        if (ret <= 0){
+            return ret;
+        }
+        while (buffer.hasRemaining()) {
+            if (channel.read(buffer) < 0){
+                return -1;
+            }
+        }
+        buffer.flip();
+        int size = buffer.getInt();
+        long ticket = buffer.getLong();
+        buffer.clear().limit(size);
+        while (buffer.hasRemaining()) {
+            if (channel.read(buffer) < 0) {
+                throw new IOException("error when reading header from socket");
+            }
+
+        }
+        buffer.flip();
+//		LOG.info("fetching message with ticket " + ticket + ", threadid " + Thread.currentThread().getName());
+        return ticket;
+    }
+
+    public static long fetchBufferBlocking(Selector selector, SocketChannel channel, ByteBuffer buffer) throws IOException{
         buffer.clear().limit(HEADERSIZE);
         
         int ready = selector.select(100);
