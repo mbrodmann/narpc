@@ -28,6 +28,8 @@ import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
+import java.util.Iterator;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -65,9 +67,31 @@ public class NaRPCEndpoint<R extends NaRPCMessage, T extends NaRPCMessage> {
 	public void connect(InetSocketAddress address) throws IOException {
 		this.channel.configureBlocking(false);
 		this.channel.connect(address);
-		while(!channel.finishConnect() ){
+		
+		channel.register(selector, SelectionKey.OP_CONNECT);
+
+		selector.select(1000);
+		Set<SelectionKey> selectedKeys = selector.selectedKeys();
+
+		Iterator<SelectionKey> keyIterator = selectedKeys.iterator();
+
+		while(keyIterator.hasNext()) {
+			
+			SelectionKey key = keyIterator.next();
+
+			if(key.isConnectable()) {
+				channel.finishConnect();
+				channel.register(selector, SelectionKey.OP_READ);
+
+				return;
+			}
+
+			keyIterator.remove();
 		}
-		channel.register(selector, SelectionKey.OP_READ);
+
+		// client was unable to create a connection within the given time
+		throw new IOException("Timeout occurred on connect");
+
 
 	}
 
